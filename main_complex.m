@@ -27,7 +27,7 @@ end
 %% Extact one slice and rescale to [0, 1]
 z = 40;
 gt = squeeze(I_sense(:,:,z,:));
-smaps = squeeze(smaps_new(:,:,z,:));
+smaps_slice = squeeze(smaps_new(:,:,z,:));
 
 %% Create regions of interest
 M_mask = false(Nx, Ny);
@@ -65,7 +65,7 @@ end
 %% Generate multicoil images
 img_mc = zeros(Nx, Ny, Nc, Nt);
 for t = 1:Nt
-    img_mc(:,:,:,t) = img(:,:,t) .* smaps;
+    img_mc(:,:,:,t) = img(:,:,t) .* smaps_slice;
 end
 
 if verbose
@@ -82,10 +82,10 @@ end
 %% Generate random or standard caipi sampling masks
 omegas = zeros(Nx, Ny, Nt);
 
-mode = 'caipi';
+mode = 'rand';
 switch mode
     case 'caipi'
-        Rx = 2; Ry = 3;
+        Rx = 3; Ry = 3;
         caipi = 3;
         omegas(1:Rx:Nx, 1:Ry:Ny, :) = 1;
 
@@ -98,7 +98,7 @@ switch mode
 
     case 'rand'
         Rx = sqrt(3); Ry = sqrt(3); R = [Rx Ry];
-        caipi = 2;
+        caipi = 3;
         acs_x = 0.2; acs_y = 0.2; acs = [acs_x acs_y];
         weights_x = normpdf(1:Nx, mean(1:Nx), Nx/6);
         weights_y = normpdf(1:Ny, mean(1:Ny), Ny/6);
@@ -133,7 +133,7 @@ end
 %% SENSE combination
 rec_sense = zeros(Nx, Ny, Nt);
 for t = 1:Nt
-    rec_sense(:,:,t) = sum(img_zf(:,:,:,t) .* conj(smaps), 3);
+    rec_sense(:,:,t) = sum(img_zf(:,:,:,t) .* conj(squeeze(smaps_slice)), 3);
 end
 
 if verbose
@@ -142,7 +142,7 @@ end
 
 %% CG-SENSE recon
 rec_cgs = zeros(Nx, Ny, Nt);
-smaps_reshaped = reshape(smaps, [Nx, Ny, 1, Nc]);
+smaps_reshaped = reshape(smaps_slice, [Nx, Ny, 1, Nc]);
 
 parfor t = 1:Nt
     k_t = permute(ksp_us(:,:,:,t), [1 2 4 3]);
@@ -164,7 +164,7 @@ t_sense = tscores(rec_sense, GLM, c);
 t_cgs = tscores(rec_cgs, GLM, c);
 
 %% Viszualize t-scores for simple cases
-tlim = [3, 15];
+tlim = [3, 20];
 cmap = parula;
 
 figure; tiledlayout(1,4,"TileSpacing","tight");
@@ -175,11 +175,11 @@ nexttile; qt(t_cgs, abs(rec_cgs(:,:,1)), tlim, cmap, 'CG-SENSE');
 
 %% L1-regularized recon
 figure; tiledlayout(1,4,"TileSpacing","tight");
-tlim = [3, 15];
+tlim = [3, 20];
 cmap = parula;
 
 for n = 2:5 % Loop over regularization strengths
-    smaps_reshaped = reshape(smaps, [Nx, Ny, 1, Nc]);
+    smaps_reshaped = reshape(smaps_slice, [Nx, Ny, 1, Nc]);
     rec_l1 = zeros(Nx, Ny, Nt);
     parfor t = 1:Nt
         k_t = permute(ksp_us(:,:,:,t), [1 2 4 3]);
@@ -192,18 +192,48 @@ for n = 2:5 % Loop over regularization strengths
     qt(t_l1, abs(rec_l1(:,:,1)), tlim, cmap, plotname);
 end
 
-%% LLR recon (in Julia)
+%% Save undersmpled k-space to LLR recon
+if ndims(ksp_us) < 5 % Julia recon expects 3 spatial dimensions
+    ksp_zf = reshape(ksp_us, [1, size(ksp_us)]);
+    smaps_slice = reshape(smaps_slice, [1, Nx, Ny, Nc]);
+else
+    ksp_zf = ksp_us;
+end
+save(datdir + 'ksp_zf.mat', 'ksp_zf', '-v7.3');
+save(datdir + 'smaps_slice.mat', 'smaps_slice', '-v7.3');
+
+%% Do LLR recon in Julia
+
+%% LLR recon (from Julia)
 figure; tiledlayout(1,4,"TileSpacing","tight");
 tlim = [3, 20];
 cmap = parula;
 
 for n = 2:5 % Loop over regularization strengths
-    fn = datdir + sprintf('caipi_comp/rec_llr_5e-%d', n);
+    fn = datdir + sprintf('recon/tmp/rec_llr_1e-%d.mat', n);
     load(fn);
     rec_lr = squeeze(X);
     t_lr = tscores(rec_lr, GLM, c);
 
     nexttile;
-    plotname = sprintf('Multiscale LLR, lambda = 5e-%d', n);
+    plotname = sprintf('Multiscale LLR, lambda = 1e-%d', n);
     qt(t_lr, abs(rec_lr(:,:,1)), tlim, cmap, plotname);
+end
+
+%% LLR recon with different number of scales(from Julia)
+figure; tiledlayout(4,5,"TileSpacing","tight");
+tlim = [3, 20];
+cmap = parula;
+
+for n = 2:5 % Loop over regularization strengths
+    for i = 1:5
+        fn = datdir + sprintf('recon/tmp/%dscales/rec_llr_1e-%d.mat', i, n);
+        load(fn);
+        rec_lr = squeeze(X);
+        t_lr = tscores(rec_lr, GLM, c);
+    
+        nexttile;
+        plotname = sprintf('Multiscale LLR, lambda = 1e-%d, %d scales', n, i);
+        qt(t_lr, abs(rec_lr(:,:,1)), tlim, cmap, plotname);
+    end
 end

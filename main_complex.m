@@ -99,7 +99,7 @@ switch mode
     case 'rand'
         Rx = sqrt(3); Ry = sqrt(3); R = [Rx Ry];
         caipi = 3;
-        acs_x = 0.2; acs_y = 0.2; acs = [acs_x acs_y];
+        acs_x = 0.1; acs_y = 0.1; acs = [acs_x acs_y];
         weights_x = normpdf(1:Nx, mean(1:Nx), Nx/6);
         weights_y = normpdf(1:Ny, mean(1:Ny), Ny/6);
         max_kx_step = round(Nx/16);
@@ -144,7 +144,7 @@ end
 rec_cgs = zeros(Nx, Ny, Nt);
 smaps_reshaped = reshape(smaps_slice, [Nx, Ny, 1, Nc]);
 
-parfor t = 1:Nt
+for t = 1:Nt
     k_t = permute(ksp_us(:,:,:,t), [1 2 4 3]);
     rec_cgs(:,:,t) = bart('pics', k_t, smaps_reshaped);
 end
